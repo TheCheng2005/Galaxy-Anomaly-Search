@@ -1,0 +1,63 @@
+"""Draw the highest-scoring catalogue cutouts, ordered by score then ID."""
+import argparse
+import io
+import sys
+import h5py
+from pathlib import Path
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import pandas as pd
+from PIL import Image
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from common.paths import HDF5_PATH
+
+CATALOGUE = ROOT / 'catalogue'
+N_PANELS = 30
+PIXEL_SCALE_ARCSEC = 0.05
+
+
+def main(output_dir, hdf5_path):
+    output_dir.mkdir(parents=True, exist_ok=True)
+    catalogue = pd.read_csv(CATALOGUE/'candidates.csv', dtype={'filename':str})
+    sample = catalogue.sort_values(['imagescore','filename'],ascending=[False,True]).head(N_PANELS).copy()
+    subset = pd.read_csv(ROOT/'results/paper/gemini_low_seed44/subset.csv', dtype={'filename':str}).set_index('filename')
+    images = {}
+    with h5py.File(hdf5_path, 'r') as archive:
+        for filename in sample.filename:
+            index = int(subset.loc[filename, 'hdf5_index'])
+            with Image.open(io.BytesIO(bytes(archive['images'][index]))) as image:
+                images[filename] = image.convert('RGB')
+    fig,axes = plt.subplots(5,6,figsize=(8.4,7.5))
+    for ax,row in zip(axes.flat,sample.itertuples()):
+        image = images[row.filename]
+        ax.imshow(image)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_title(f'{row.filename}\n{row.imagescore}/50',fontsize=7,pad=3,linespacing=1.15)
+        for spine in ax.spines.values():
+            spine.set_edgecolor('#dddddd')
+            spine.set_linewidth(.35)
+    fig.subplots_adjust(left=.018,right=.982,bottom=.012,top=.966,wspace=.11,hspace=.35)
+    fig.savefig(output_dir/'appendix_catalog.pdf',bbox_inches='tight',pad_inches=.03)
+    fig.savefig(output_dir/'appendix_catalog.png',dpi=200,bbox_inches='tight',pad_inches=.03)
+    plt.close(fig)
+    width, height = next(iter(images.values())).size
+    caption = (rf'\caption{{The {len(sample)} highest-scoring images among the {len(catalogue)} retained candidates with Gemini '
+               r'\textit{Likert} scores $\geq45$ outside AnomalyMatch, after excluding galaxy-mentions and '
+               r"O'Ryan interacting-catalogue matches within $3\arcsec$ and manually excluding ESO 255-7 and SDSS J1205+4910. "
+               r'Images are ordered by decreasing score, left to right and top to bottom, with ties broken by increasing source identifier. '
+               rf"Each HST F814W cutout is ${width}\times{height}$ pixels (${width*PIXEL_SCALE_ARCSEC:g}''\times{height*PIXEL_SCALE_ARCSEC:g}''$). "
+               r'Labels give source identifiers and scores out of 50. These are follow-up candidates, not confirmed new discoveries.}')
+    (output_dir/'appendix_caption.tex').write_text(caption+'\n')
+    print(f'Saved {len(sample)} panels; scores {sample.imagescore.max()} to {sample.imagescore.min()}, to {output_dir}')
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--output-dir', type=Path, default=ROOT / 'generated')
+    parser.add_argument('--hdf5', type=Path, default=Path(HDF5_PATH), help='External parent image archive')
+    args = parser.parse_args()
+    main(args.output_dir, args.hdf5)

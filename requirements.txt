@@ -1,0 +1,14 @@
+mastcasjobs
+python-dotenv==1.2.3
+scipy==1.17.1
+astropy==8.0.1
+astroquery
+pyarrow==25.0.1
+pandas==3.0.5
+numpy==2.4.6
+h5py==3.16.0
+Pillow==12.3.0
+google-genai==2.22.0
+openai==3.11.0
+pydantic==2.13.5
+matplotlib==3.11.1

@@ -1,0 +1,17 @@
+# Frozen inputs in results/paper/, catalogue/, and analysis/data/ are tracked.
+# Regenerated products and new inference runs are separate.
+generated/
+cache/
+work/
+output/
+hubble_data/
+__pycache__/
+*.py[cod]
+.venv/
+.venv-*/
+.env
+.env.*
+.DS_Store
+
+# Catalogue cutouts stay in the external parent HDF5 archive.
+catalogue/images/

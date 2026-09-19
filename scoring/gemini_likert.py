@@ -1,0 +1,329 @@
+"""Gemini Likert scoring of HST image grids."""
+
+
+
+import os
+from pathlib import Path
+import csv
+import random
+import math
+import io
+from multiprocessing import Pool
+
+import h5py
+import numpy as np
+from astropy.coordinates import SkyCoord
+import astropy.units as u
+from google import genai
+from google.genai import types
+from pydantic import BaseModel, Field
+from PIL import Image, ImageDraw, ImageFont
+import sys as _sys
+_sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from common.paths import (
+    HDF5_PATH,
+    INTERESTING_CSV_PATH,
+    PARQUET_PATH,
+    SUBSET_DIR,
+    FULL_RUN_DIR,
+)
+
+NUM_CORES = 25
+ROUNDS_PER_IMAGE = 10
+GRID_DIM = 4
+BATCH_SIZE = GRID_DIM * GRID_DIM
+
+MATCH_RADIUS_ARCSEC = 3.0  # radius search: match each Interesting.csv item to its nearest image
+RANDOM_SEEDS = [44, 45, 46]
+
+TEST_MODE = True 
+TEST_NUM_IMAGES = 20000 
+
+class SelectedImage(BaseModel):
+    GridIndex: int = Field(
+        ge=1,
+        le=16,
+        description=(
+            "Index 1-16 of the interesting image in the 4x4 grid, "
+            "reading top-to-bottom, left-to-right."
+        ),
+    )
+    Score: int = Field(
+        ge=1,
+        le=5,
+        description=(
+            "Scientific interest score from 1 mildly interesting "
+            "to 5 exceptionally interesting."
+        ),
+    )
+
+config = types.GenerateContentConfig(
+    system_instruction=(
+        "You are an expert astronomer evaluating a 4x4 grid of astronomical images. "
+        "The images are indexed 1-4 in the top row, 5-8 in the second row, "
+        "9-12 in the third row, and 13-16 in the bottom row. "
+        "Your task:\n"
+        "1. Select any images that are scientifically interesting. "
+        "Skip blank, empty, or uninformative frames.\n"
+        "2. For each selected image, assign a Score from 1 to 5 "
+        "(no explanation needed):\n"
+        "   1 = mildly interesting, 2 = somewhat interesting, 3 = interesting, "
+        "   4 = very interesting, 5 = exceptionally interesting.\n"
+        "Return a list of selected images. If none are interesting, return an empty list.\n"
+    ),
+    response_mime_type="application/json",
+    response_schema=list[SelectedImage],
+    temperature=0.1,
+    thinking_config=types.ThinkingConfig(thinking_level="low"),
+)
+
+
+def load_interesting_metadata(csv_path, coordinates, radius_arcsec=MATCH_RADIUS_ARCSEC):
+    import pandas as pd
+
+    df = pd.read_csv(csv_path)
+
+
+    catalog_ids = list(coordinates.keys())
+    catalog_ra = np.array([coordinates[sid]["SourceRA"] for sid in catalog_ids])
+    catalog_dec = np.array([coordinates[sid]["SourceDec"] for sid in catalog_ids])
+    catalog_coords = SkyCoord(ra=catalog_ra * u.deg, dec=catalog_dec * u.deg)
+
+    interesting_coords = SkyCoord(ra=df["RA"].values * u.deg, dec=df["Dec"].values * u.deg)
+
+    # Each reference labels only its nearest image within the matching radius.
+    nearest_idx, sep2d, _ = interesting_coords.match_to_catalog_sky(catalog_coords)
+
+    metadata = {}
+    n_items_matched = 0
+
+    for row_idx, (match_idx, sep) in enumerate(zip(nearest_idx, sep2d.arcsec)):
+        if sep <= radius_arcsec:
+            n_items_matched += 1
+            matched_source_id = catalog_ids[match_idx]
+            classification = str(df.iloc[row_idx]["Classification"]).strip()
+            metadata[matched_source_id] = classification
+
+    print(
+        f"Matched {n_items_matched} / {len(df)} Interesting.csv entries to an "
+        f"image within {radius_arcsec}\" ({len(metadata)} unique images, "
+        f"{n_items_matched - len(metadata)} shared their nearest image with "
+        f"another Interesting.csv entry)."
+    )
+
+    return metadata
+
+
+def load_parquet_coordinates(parquet_path):
+    import pandas as pd
+
+    df = pd.read_parquet(parquet_path)
+    coordinates = {}
+
+    for _, row in df.iterrows():
+        source_id = str(int(row["SourceID"]))
+        coordinates[source_id] = {
+            "SourceRA": row["SourceRA"],
+            "SourceDec": row["SourceDec"],
+        }
+
+    print(f"Loaded coordinates for {len(coordinates)} sources from parquet.")
+    return coordinates
+
+
+def build_labeled_records(hdf5_path, interesting_csv_path, coordinates):
+    print("Loading all images from HDF5...")
+
+    interesting_metadata = load_interesting_metadata(interesting_csv_path, coordinates)
+
+    with h5py.File(hdf5_path, "r") as f:
+        filenames = f["filenames"].asstr()
+        images = f["images"]
+
+        n_total = len(images)
+        all_records = []
+        for hdf5_idx in range(n_total):
+            filename = filenames[hdf5_idx]
+            img_bytes = bytes(images[hdf5_idx])
+
+            source_id = os.path.splitext(filename)[0]
+            classification = interesting_metadata.get(source_id, "")
+            is_interesting = 1 if classification else 0
+            coord_data = coordinates[source_id]
+
+            all_records.append({
+                "index": hdf5_idx,
+                "filename": filename,
+                "image_bytes": img_bytes,
+                "interesting": is_interesting,
+                "classification": classification,
+                "SourceRA": coord_data["SourceRA"],
+                "SourceDec": coord_data["SourceDec"],
+            })
+
+    n_interesting_found = sum(r["interesting"] for r in all_records)
+
+    print(f"HDF5 contains {n_total} images.")
+    print(f"Found {n_interesting_found} interesting images in CSV.")
+
+    return all_records
+
+
+def prepare_run_records(all_records, random_seed):
+    # Sample backgrounds, then shuffle with the same per-seed RNG.
+    rng = random.Random(random_seed)
+    records = [dict(r) for r in all_records]
+
+    if TEST_MODE:
+        interesting = [r for r in records if r["interesting"]]
+        boring = [r for r in records if not r["interesting"]]
+
+        n_boring_needed = max(0, TEST_NUM_IMAGES - len(interesting))
+        n_boring_needed = min(n_boring_needed, len(boring))
+        boring_subset = rng.sample(boring, n_boring_needed)
+
+        records = interesting + boring_subset
+
+    rng.shuffle(records)
+
+    for i, record in enumerate(records):
+        record["index"] = i
+
+    print(f"Seed {random_seed}: {len(records)} images, "
+          f"{sum(record['interesting'] for record in records)} reference anomalies")
+
+    return records
+
+
+def create_grid(image_records):
+    thumb_w, thumb_h = 200, 200
+    margin = 4
+
+    grid_w = (thumb_w * GRID_DIM) + (margin * (GRID_DIM + 1))
+    grid_h = (thumb_h * GRID_DIM) + (margin * (GRID_DIM + 1))
+
+    canvas = Image.new("RGB", (grid_w, grid_h), color=(50, 50, 50))
+    draw = ImageDraw.Draw(canvas)
+
+    font = ImageFont.truetype(
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        20,
+    )
+
+    for i, record in enumerate(image_records):
+        if record is None:
+            continue
+
+        row = i // GRID_DIM
+        col = i % GRID_DIM
+
+        x = margin + col * (thumb_w + margin)
+        y = margin + row * (thumb_h + margin)
+
+        img_bytes = record["image_bytes"]
+
+        with Image.open(io.BytesIO(img_bytes)) as img:
+            img = img.convert("RGB")
+            img = img.resize((thumb_w, thumb_h))
+            canvas.paste(img, (x, y))
+
+        draw.text(
+            (x + 5, y + 5),
+            str(i + 1),
+            fill="white",
+            font=font,
+            stroke_width=1,
+            stroke_fill="black",
+        )
+
+    buf = io.BytesIO()
+    canvas.save(buf, format="PNG")
+    buf.seek(0)
+
+    return buf
+
+
+def process_batches(args):
+    batches, api_key = args
+    client = genai.Client(api_key=api_key)
+    decisions = []
+    token_totals = [0] * 4
+    for batch_records in batches:
+        image_bytes = create_grid(batch_records).getvalue()
+        grid_part = types.Part.from_bytes(data=image_bytes, mime_type="image/png")
+        contents = [
+            (
+                "Analyze this 4x4 grid of astronomical images. "
+                "Select any scientifically interesting images and "
+                "rate each selected image from 1 to 5."
+            ),
+            grid_part,
+        ]
+        response = client.models.generate_content(
+            model="gemini-3.1-flash-lite",
+            contents=contents,
+            config=config,
+        )
+        usage = response.usage_metadata
+        request_tokens = [usage.prompt_token_count, usage.candidates_token_count,
+                          usage.thoughts_token_count or 0, usage.cached_content_token_count or 0]
+        for i, value in enumerate(request_tokens):
+            token_totals[i] += value
+        data = response.parsed
+        # Keep repeated score entries: the original runs sum every returned entry.
+        for item in data:
+            record = batch_records[item.GridIndex - 1]
+            if record is not None:
+                decisions.append((record["index"], item.Score))
+    return decisions, token_totals
+
+
+def run_experiment(all_images, api_key, random_seed, results_file):
+    Path(results_file).parent.mkdir(parents=True, exist_ok=True)
+    scores = {record["index"]: 0 for record in all_images}
+    token_totals = [0] * 4
+    random.seed(random_seed)
+    # Each image receives ten exposures; a grid can contain repeated images.
+    master_pool = all_images * ROUNDS_PER_IMAGE
+    random.shuffle(master_pool)
+    batches = []
+    for start in range(0, len(master_pool), BATCH_SIZE):
+        batch = master_pool[start:start + BATCH_SIZE]
+        batches.append(batch + [None] * (BATCH_SIZE - len(batch)))
+    chunk_size = math.ceil(len(batches) / NUM_CORES)
+    workers = [(batches[start:start + chunk_size], api_key)
+               for start in range(0, len(batches), chunk_size)]
+    with Pool(processes=NUM_CORES) as pool:
+        for decisions, usage in pool.map(process_batches, workers):
+            for index, score in decisions:
+                scores[index] += score
+            for i, value in enumerate(usage):
+                token_totals[i] += value
+
+    records = {record["index"]: record for record in all_images}
+    with open(results_file, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(['index', 'filename', 'imagescore', 'interesting', 'classification', 'SourceRA', 'SourceDec'])
+        for index in sorted(scores, key=scores.get, reverse=True):
+            record = records[index]
+            writer.writerow([index, record["filename"], scores[index], record["interesting"],
+                             record["classification"], record["SourceRA"], record["SourceDec"]])
+        writer.writerow([])
+        writer.writerow(["# TOKEN USAGE SUMMARY"])
+        writer.writerow(["# TotalInputTokens", token_totals[0]])
+        writer.writerow(["# TotalOutputTokens", token_totals[1]])
+        writer.writerow(["# TotalThinkingTokens", token_totals[2]])
+        writer.writerow(["# TotalCachedInputTokens", token_totals[3]])
+        writer.writerow(["# TotalTokens", sum(token_totals[:3])])
+    print(f"Wrote {results_file}")
+
+
+if __name__ == "__main__":
+    api_key = os.environ["GEMINI_API_KEY"]
+    coordinates = load_parquet_coordinates(PARQUET_PATH)
+    all_labeled = build_labeled_records(HDF5_PATH, INTERESTING_CSV_PATH, coordinates)
+    output_dir = Path(SUBSET_DIR if TEST_MODE else FULL_RUN_DIR)
+    for seed in RANDOM_SEEDS:
+        run_images = prepare_run_records(all_labeled, seed)
+        run_experiment(run_images, api_key, seed, output_dir / f"gemini_likert_seed{seed}.csv")
