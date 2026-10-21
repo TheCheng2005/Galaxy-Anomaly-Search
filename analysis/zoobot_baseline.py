@@ -9,7 +9,30 @@ Anomaly scores (higher = more unusual):
   isolation forest  how quickly random axis-aligned splits isolate an image (Liu et al. 2008)
   kNN distance      mean cosine distance to the image's k nearest neighbours in the benchmark
 
-    python analysis/zoobot_baseline.py --hdf5 PATH/10m_dedup_hsc_acs_wfc_f814w_0000_minsep10p0arcsec.hdf5
+    python3 analysis/zoobot_baseline.py --hdf5 PATH/10m_dedup_hsc_acs_wfc_f814w_0000_minsep10p0arcsec.hdf5
+
+What you need
+  The image archive (.hdf5, see dataset/pipeline.py), plus torch and timm; the Zoobot weights are
+  downloaded from Hugging Face on the first run. The 20,000 images are the ones in
+  paper_results/benchmark_subset.csv. No GPU or API key needed.
+
+How long it takes
+  On a CPU, about 10 minutes to embed the 20,000 images (8 threads; change with --threads) and
+  under a minute to score them. The embeddings are saved in the output folder, so reruns (e.g.
+  with another --k) skip straight to the scoring.
+
+Things you might want to change
+  --k       neighbours for the kNN distance (default 10). 50 or 100 give nearly the same recall.
+  --seeds   how many isolation-forest seeds to run for the spread (default 5).
+
+What you get
+  generated/zoobot_baseline/scores.csv (both scores per image; ours is
+  paper_results/scores/zoobot_nano_scores.csv) and table1_rows.tex, the two Zoobot rows of Table 1.
+
+What to expect
+  kNN distance finds 85.0% of the 167 anomalies in its top 2,000, the isolation forest 70.1%
+  (71.4% +/- 1.3% over five seeds). Expect the same or within a fraction of a percent: different
+  torch or scikit-learn versions can shift the embeddings and the forest slightly.
 """
 import argparse
 import csv
@@ -27,7 +50,7 @@ sys.path.insert(0, str(ANALYSIS))
 from common.paths import HDF5_PATH  # noqa: E402
 from make_table1 import REVIEW_SET_SIZE, recall_curve  # noqa: E402
 
-SUBSET = ROOT / 'results/paper/gemini_low_seed44/subset.csv'
+SUBSET = ROOT / 'paper_results/benchmark_subset.csv'
 ENCODER = 'hf_hub:mwalmsley/zoobot-encoder-greyscale-convnext_nano'
 SIDE = 224
 

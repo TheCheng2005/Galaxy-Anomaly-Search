@@ -1,0 +1,8 @@
+run,input,output,thinking,cost_usd
+gemini_likert_seed44,15925000,2630684,1446714,
+gemini_tournament_seed44,17996160,508788,1376232,
+qwen_likert_seed44,11036770,2306798,0,13.378607950000228
+qwen_tournament_seed44,7098642,375109,0,3.6004
+gemini_likert_seed45,15925000,2617121,1443622,
+gemini_likert_seed46,15925000,2627106,1445085,
+gemini_likert_high_thinking_seed44,15925000,2286472,18026519,

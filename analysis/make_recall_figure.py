@@ -1,4 +1,14 @@
-"""Draw recall curves, the score histogram and example images."""
+"""Draw Figure 1: (a) recall against the number of images selected, (b) the Gemini Likert score
+histogram, and (c) three example images.
+
+  python3 analysis/make_recall_figure.py
+
+It reads the four seed-44 runs in paper_results/scores/ and writes generated/recall_figure.png and
+.svg. The example panels (c) come from paper_results/figure1_examples/. To redraw them from the
+original HST frames instead, pass --fits-dir DIR (missing frames are downloaded from MAST).
+
+To plot your own runs, point SCORES (below) at generated/scores/.
+"""
 import argparse
 import sys
 import io
@@ -27,13 +37,8 @@ ANALYSIS = Path(__file__).resolve().parent
 ROOT = ANALYSIS.parent
 sys.path.insert(0, str(ROOT))
 from common import scores_csv
-RUNS = ROOT / 'results' / 'paper'
-RESULTS = {
-    ('gemini', 'likert'): RUNS / 'gemini_low_seed44/likert_scores.csv',
-    ('qwen', 'likert'): RUNS / 'qwen_likert_paper_prompt_seed44/likert_scores.csv',
-    ('gemini', 'tournament'): RUNS / 'gemini_low_seed44/tournament_scores.csv',
-    ('qwen', 'tournament'): RUNS / 'qwen_tournament_seed44/tournament_scores.csv',
-}
+SCORES = ROOT / 'paper_results' / 'scores'
+RESULTS = {(model, method): SCORES / f'{model}_{method}_seed44.csv' for model, method, *_ in METHODS}
 MAX_SELECTED = 2500
 
 
@@ -114,7 +119,7 @@ def example_images(folder):
 
 def cached_example_images():
     for ident, *_ in SUBJECTS:
-        with Image.open(ANALYSIS / 'data' / 'examples' / f'{ident}.png') as image:
+        with Image.open(ROOT / 'paper_results' / 'figure1_examples' / f'{ident}.png') as image:
             yield image.copy()
 
 

@@ -1,5 +1,37 @@
 #!/usr/bin/env python3
-"""Build the public 10M HSC / 10-arcsec HAP cutout data products."""
+"""Build the image archive the paper scores: 223,195 HST cutouts (Section 2, "Dataset construction").
+
+You only need this if you want to rebuild the archive from scratch. If you already have the
+.hdf5 and .parquet files, put them in ../hubble_data/ (or set HUBBLE_DATA_DIR) and skip it.
+
+What it does, step by step
+  1. Asks MAST for every HST ACS/WFC F814W image processed by the Hubble Advanced Products
+     pipeline (HAP-SVM drizzled frames).
+  2. Queries the Hubble Source Catalog v3 on MAST CasJobs for extended-source detections on those
+     images, up to 10 million rows (LIMIT). This is the slow, server-side part.
+  3. Removes near-duplicates: keeps one detection per 10 arcsec (RADIUS_ARCSEC), preferring
+     unsaturated detections without quality flags. That leaves 223,195 detections, saved with
+     their positions as the .parquet file.
+  4. Downloads each FITS frame, cuts a 150 x 150 px cutout (7.5 arcsec) around every kept
+     detection, stretches it with ZScale (contrast 0.05, as in AnomalyMatch), and stores it as a
+     JPEG in the .hdf5 file, named by its HSC SourceID. Each frame is deleted after cutting.
+
+  python3 dataset/pipeline.py --work-dir work --output-dir ../hubble_data
+
+What you need
+  A free MAST CasJobs account: put CASJOBS_WSID (your numeric WSID) and CASJOBS_PW in .env
+  (copy .env.example). Plenty of time and bandwidth, since step 4 downloads every frame once.
+
+Handy options
+  --stop-after catalog   stop after step 2 (the raw detection table, in --work-dir)
+  --stop-after parquet   stop after step 3 (positions only, no images)
+  If a later step fails, rerunning starts again from step 1.
+
+What you get
+  ../hubble_data/10m_dedup_hsc_acs_wfc_f814w_0000_minsep10p0arcsec.parquet  (positions and
+  catalogue columns) and .hdf5 (the cutouts, in the same order). MAST sometimes reprocesses
+  frames, so a rebuild today can differ slightly from the paper's archive.
+"""
 
 import argparse
 import csv

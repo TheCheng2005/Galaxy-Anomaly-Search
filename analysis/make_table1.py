@@ -1,4 +1,21 @@
-"""Calculate paper tables and seed comparisons from scores and recorded usage."""
+"""Recompute Table 1, the token and cost table (Table 2, Appendix C) and the numbers quoted in the text.
+
+  python3 analysis/make_table1.py
+
+It reads our scores in paper_results/scores/ and the token counts in paper_results/token_usage.csv,
+and prints:
+  - Table 1: recall, precision and Expected Recall@2000 for the four VLM runs, and the cost per
+    10,000 images,
+  - the seed spread of Gemini Likert (seeds 44-46), the high-thinking run, and a few numbers from
+    the text (recall in the top 300, candidates scoring 45 or more).
+It also writes the LaTeX tables to generated/table1.tex and generated/appendix_cost_table.tex.
+The Zoobot rows of Table 1 come from analysis/zoobot_baseline.py.
+
+To use your own runs, point SCORES (below) at generated/scores/ and add a row per run to a copy of
+token_usage.csv, using the token counts at the bottom of each score file.
+
+What to expect: exactly the paper's numbers, e.g. Gemini Likert recall 0.982 at score >= 33.
+"""
 
 import argparse
 import csv
@@ -12,15 +29,9 @@ _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from common import scores_csv
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
-RESULTS = PACKAGE_ROOT / "results/paper"
-RUNS = {'gemini_likert_low_seed44': 'gemini_low_seed44/likert_scores.csv',
- 'gemini_tournament_low_seed44': 'gemini_low_seed44/tournament_scores.csv',
- 'qwen_likert_seed44': 'qwen_likert_paper_prompt_seed44/likert_scores.csv',
- 'qwen_tournament_seed44': 'qwen_tournament_seed44/tournament_scores.csv',
- 'gemini_likert_low_seed45': 'gemini_likert_low_seed45/likert_scores.csv',
- 'gemini_likert_low_seed46': 'gemini_likert_low_seed46/likert_scores.csv',
- 'gemini_likert_high_seed44': 'gemini_likert_high_seed44/likert_scores.csv'}
-TABLE1 = [{'run': 'gemini_likert_low_seed44',
+RESULTS = PACKAGE_ROOT / "paper_results"
+SCORES = RESULTS / "scores"  # each run is SCORES / f"{run}.csv"
+TABLE1 = [{'run': 'gemini_likert_seed44',
   'model': 'Gemini 3.1 Flash-Lite',
   'method': 'Likert',
   'provider': 'gemini',
@@ -30,7 +41,7 @@ TABLE1 = [{'run': 'gemini_likert_low_seed44',
   'method': 'Likert',
   'provider': 'qwen',
   'threshold': 36},
- {'run': 'gemini_tournament_low_seed44',
+ {'run': 'gemini_tournament_seed44',
   'model': 'Gemini 3.1 Flash-Lite',
   'method': 'Tournament',
   'provider': 'gemini',
@@ -67,7 +78,7 @@ def recall_curve(scores, truth, total_positives):
 
 
 def evaluate(run_id, threshold, provider, usage):
-    rows = scores_csv.read(RESULTS / RUNS[run_id])
+    rows = scores_csv.read(SCORES / f'{run_id}.csv')
     scores = {row['filename']: float(row['imagescore']) for row in rows}
     truth = {row['filename']: int(row['interesting']) for row in rows}
     n_images = len(scores)
@@ -132,7 +143,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output-dir', type=Path, default=PACKAGE_ROOT / 'generated')
     args = parser.parse_args()
-    with (RESULTS / 'usage.csv').open() as stream:
+    with (RESULTS / 'token_usage.csv').open() as stream:
         usage = {row['run']: row for row in csv.DictReader(stream)}
     results = [(row, evaluate(row['run'], row['threshold'], row['provider'], usage))
                for row in TABLE1]
@@ -147,13 +158,13 @@ def main():
               f"{m['recall']:>8.3f}{m['precision']:>7.3f}{m['expected_recall']:>10.3f}"
               f"{m['cost_per_10k']:>8.2f}")
 
-    replicates = [results[0][1]] + [evaluate(f'gemini_likert_low_seed{seed}', 33, 'gemini', usage)
+    replicates = [results[0][1]] + [evaluate(f'gemini_likert_seed{seed}', 33, 'gemini', usage)
                                      for seed in (45, 46)]
     recalls = [result['recall'] for result in replicates]
     sizes = [result['n_selected'] for result in replicates]
     print(f"\nSeed spread: recall {statistics.mean(recalls):.3f} +/- {statistics.stdev(recalls):.3f} (sample SD)")
     print(f"Images selected: {min(sizes)}-{max(sizes)}")
-    high = evaluate('gemini_likert_high_seed44', 33, 'gemini', usage)
+    high = evaluate('gemini_likert_high_thinking_seed44', 33, 'gemini', usage)
     print(f"High thinking: {high['true_positives']} / {high['positives']} reference anomalies, "
           f"${high['cost_per_10k']:.2f} / 10,000 images")
     print(f"Gemini Likert expected recall in top 300: {results[0][1]['expected_recall_at_300']:.6f}")

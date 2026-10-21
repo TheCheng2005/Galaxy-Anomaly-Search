@@ -1,5 +1,4 @@
-# Frozen inputs in results/paper/, catalogue/, and analysis/data/ are tracked.
-# Regenerated products and new inference runs are separate.
+# The paper's results in paper_results/ are tracked; everything a run makes goes to generated/.
 generated/
 cache/
 work/

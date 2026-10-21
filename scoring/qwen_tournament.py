@@ -1,6 +1,53 @@
-"""Qwen Tournament scoring of HST image grids."""
+"""Score images with Qwen3.5-397B-A17B using the Tournament method (Table 1, Figure 1).
 
+How it works
+  Same method and prompt as scoring/gemini_tournament.py: each round Qwen decides, for each image
+  in a 2x2 grid, whether to keep it; kept images go to the next round; the score is the number
+  of rounds survived (0 to 10). Qwen is called through OpenRouter with reasoning turned off and
+  temperature 0.1.
 
+  python3 scoring/qwen_tournament.py
+
+  You need OPENROUTER_API_KEY in your environment.
+
+Test mode (TEST_MODE, top of the file)
+  True (the default, and what the paper uses): score the 20,000-image benchmark. That is every
+    cutout matched to one of the 167 reference anomalies, plus random background cutouts to make
+    20,000 in total (TEST_NUM_IMAGES). The background draw uses the run's seed, so seed 44 gives
+    exactly the images in paper_results/benchmark_subset.csv; other seeds draw a different
+    background but always keep all 167 anomalies. Scores go to generated/scores/.
+  False: score every cutout in the archive (223,195 of them), e.g. to search for new candidates.
+    This costs about 11 times as much as test mode. Scores go to generated/scores_full_archive/.
+    The reference anomalies are still flagged in the output, so you can still measure recall.
+
+What you need
+  - The image archive from dataset/pipeline.py (the .hdf5 cutouts and the .parquet positions),
+    in ../hubble_data/ or wherever HUBBLE_DATA_DIR points.
+  - dataset/reference_anomalies.csv (ships with the repo). Each entry labels its nearest cutout
+    within 3 arcsec (MATCH_RADIUS_ARCSEC), which gives the 167 reference anomalies.
+  - The DejaVu Sans Bold font at FONT_PATH. The default is the usual Linux location; on macOS,
+    `brew install --cask font-dejavu` and set FONT_PATH to ~/Library/Fonts/DejaVuSans-Bold.ttf.
+    The font draws the image numbers on each grid, so keep it if you want the paper's images.
+
+Things you might want to change
+  OPENROUTER_MODEL  any vision model on OpenRouter that supports structured outputs.
+  RANDOM_SEEDS      the paper used seed 44 only.
+  MAX_ROUNDS        more rounds give a shorter final list.
+  NUM_CORES         how many API requests run in parallel. Lower it if you hit rate limits.
+  "provider"        in the request below; the paper's run skipped one OpenRouter provider
+                    (DigitalOcean). Remove that line to let OpenRouter pick freely.
+
+What it costs
+  About $3.60 in test mode (OpenRouter's charge for the paper's run). The total is written at
+  the bottom of the output file.
+
+What you get
+  generated/scores/qwen_tournament_seed44.csv, sorted by score, plus a usage footer.
+  Compare with paper_results/scores/qwen_tournament_seed44.csv.
+
+What to expect
+  In the paper, 2,099 images survived all 10 rounds and held 156 of the 167 anomalies (93.4%).
+"""
 
 import os
 from pathlib import Path
@@ -42,8 +89,9 @@ MATCH_RADIUS_ARCSEC = 3.0  # radius search: match each Interesting.csv item to i
 MAX_ROUNDS = 10
 RANDOM_SEEDS = [44]
 
-TEST_MODE = True 
-TEST_NUM_IMAGES = 20000 
+TEST_MODE = True  # True: the 20,000-image benchmark; False: the whole archive (see top)
+TEST_NUM_IMAGES = 20000
+FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"  # grid numbers (see top)
 
 class InterestingSelection(BaseModel):
     KeepImage1: bool = Field(
@@ -220,7 +268,7 @@ def create_quad_image(quad_records):
     draw = ImageDraw.Draw(canvas)
 
     font = ImageFont.truetype(
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        FONT_PATH,
         22,
     )
 

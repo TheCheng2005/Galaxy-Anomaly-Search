@@ -1,4 +1,26 @@
-"""Select high-scoring candidates after catalogue matches and manual exclusions."""
+"""Build the released catalogue of 102 candidate anomalies (Section 3, Appendix B).
+
+Starting from the Gemini Likert scores (seed 44), it keeps images that score 45 or more and
+aren't one of the 167 reference anomalies (138 images), then removes:
+  - matches within 3 arcsec of the interacting-galaxy catalogue of O'Ryan et al. (2023)
+    (138 -> 105),
+  - matches within 3 arcsec of a galaxy mentioned in astronomy papers, from the galaxy-mentions
+    dataset, huggingface.co/datasets/astronolan/galaxy-mentions (105 -> 104),
+  - two objects we found by hand to be already studied, ESO 255-7 and SDSS J1205+4910 (-> 102).
+
+  python3 catalogue/build_catalogue.py
+
+By default it uses the catalogue matches we saved (paper_results/catalogue/catalogue_matches.csv),
+so it runs without the external catalogues and gives exactly paper_results/catalogue/candidates.csv.
+To redo the matching yourself, pass both --oryan-csv and --galaxy-mentions-parquet.
+
+To build a catalogue from your own run, point --scores at it, e.g.
+  python3 catalogue/build_catalogue.py --scores generated/scores/gemini_likert_seed44.csv \
+      --oryan-csv ... --galaxy-mentions-parquet ...
+You'll need the external catalogues then, because the saved matches only cover our 138 images.
+
+Output: generated/candidates.csv, one row per candidate, highest score first.
+"""
 import argparse
 import csv
 from pathlib import Path
@@ -8,9 +30,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from common import scores_csv
 
-SCORES = ROOT / 'results/paper/gemini_low_seed44/likert_scores.csv'
-SUBSET = ROOT / 'results/paper/gemini_low_seed44/subset.csv'
-SELECTION = ROOT / 'catalogue/selection.csv'
+SCORES = ROOT / 'paper_results/scores/gemini_likert_seed44.csv'
+SUBSET = ROOT / 'paper_results/benchmark_subset.csv'
+SELECTION = ROOT / 'paper_results/catalogue/catalogue_matches.csv'
 FIELDS = ['filename', 'imagescore', 'interesting', 'SourceRA', 'SourceDec',
           'oryan_match', 'galaxy_mentions_match']
 

@@ -1,6 +1,57 @@
-"""Gemini Likert scoring of HST image grids."""
+"""Score images with Gemini 3.1 Flash-Lite using the Likert method (Table 1, Figure 1).
 
+How it works
+  Cutouts are put into 4x4 grids, and Gemini picks the interesting ones and rates each from 1
+  (mildly interesting) to 5 (exceptionally interesting). Every image appears in 10 different
+  random grids (ROUNDS_PER_IMAGE), and its score is the sum of its ratings: 0 to 50, where 0
+  means Gemini never picked it. Temperature is 0.1 and thinking is set to "low".
 
+  python3 scoring/gemini_likert.py
+
+  You need GEMINI_API_KEY in your environment (export GEMINI_API_KEY=...).
+
+Test mode (TEST_MODE, top of the file)
+  True (the default, and what the paper uses): score the 20,000-image benchmark. That is every
+    cutout matched to one of the 167 reference anomalies, plus random background cutouts to make
+    20,000 in total (TEST_NUM_IMAGES). The background draw uses the run's seed, so seed 44 gives
+    exactly the images in paper_results/benchmark_subset.csv; other seeds draw a different
+    background but always keep all 167 anomalies. Scores go to generated/scores/.
+  False: score every cutout in the archive (223,195 of them), e.g. to search for new candidates.
+    This costs about 11 times as much as test mode. Scores go to generated/scores_full_archive/.
+    The reference anomalies are still flagged in the output, so you can still measure recall.
+
+What you need
+  - The image archive from dataset/pipeline.py (the .hdf5 cutouts and the .parquet positions),
+    in ../hubble_data/ or wherever HUBBLE_DATA_DIR points.
+  - dataset/reference_anomalies.csv (ships with the repo). Each entry labels its nearest cutout
+    within 3 arcsec (MATCH_RADIUS_ARCSEC), which gives the 167 reference anomalies.
+  - The DejaVu Sans Bold font at FONT_PATH. The default is the usual Linux location; on macOS,
+    `brew install --cask font-dejavu` and set FONT_PATH to ~/Library/Fonts/DejaVuSans-Bold.ttf.
+    The font draws the image numbers on each grid, so keep it if you want the paper's images.
+
+Things you might want to change
+  RANDOM_SEEDS   one run per seed. The paper used 44, 45 and 46 (seed 44 for the main results,
+                 all three for the seed spread). Use [44] to only reproduce the main run.
+  NUM_CORES      how many API requests run in parallel. Lower it if you hit rate limits.
+  thinking_level in `config` below. The paper also tried "high" (the
+                 gemini_likert_high_thinking_seed44 run): about the same recall, 3.4x the cost.
+
+What it costs
+  About 12,500 grids (20,000 images x 10 / 16) and $10 per seed in test mode, at the paper's
+  prices ($0.25 / $1.50 per million input / output tokens, thinking billed as output). The token
+  counts are written at the bottom of each output file, so you can check the real cost of a run.
+
+What you get
+  generated/scores/gemini_likert_seed{seed}.csv, sorted by score, plus a token-usage footer
+  (lines starting with #). Compare with paper_results/scores/gemini_likert_seed44.csv.
+
+What to expect
+  With seed 44 the paper got 164 of the 167 anomalies (98.2%) among the 2,095 images scoring
+  33 or more. Across the three seeds, recall at that cutoff was 98.0% +/- 1.5%, with 2,082-2,148
+  images selected. Gemini isn't fully deterministic even at temperature 0.1, so expect a run to
+  land in that range rather than match image by image. The model behind the name can also
+  change over time, so results may drift.
+"""
 
 import os
 from pathlib import Path
@@ -37,8 +88,9 @@ BATCH_SIZE = GRID_DIM * GRID_DIM
 MATCH_RADIUS_ARCSEC = 3.0  # radius search: match each Interesting.csv item to its nearest image
 RANDOM_SEEDS = [44, 45, 46]
 
-TEST_MODE = True 
-TEST_NUM_IMAGES = 20000 
+TEST_MODE = True  # True: the 20,000-image benchmark; False: the whole archive (see top)
+TEST_NUM_IMAGES = 20000
+FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"  # grid numbers (see top)
 
 class SelectedImage(BaseModel):
     GridIndex: int = Field(
@@ -207,7 +259,7 @@ def create_grid(image_records):
     draw = ImageDraw.Draw(canvas)
 
     font = ImageFont.truetype(
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        FONT_PATH,
         20,
     )
 

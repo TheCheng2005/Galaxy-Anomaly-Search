@@ -1,4 +1,12 @@
-"""Draw the highest-scoring catalogue cutouts, ordered by score then ID."""
+"""Draw Figure 2 (Appendix B): the 30 highest-scoring of the 102 catalogue candidates.
+
+  python3 analysis/plot_appendix_catalog.py
+
+It reads paper_results/catalogue/candidates.csv and takes the cutouts from the image archive
+(the .hdf5 file, see dataset/pipeline.py), so you need that file. Images are ordered by score,
+then by ID. It writes generated/appendix_catalog.pdf and .png, and the LaTeX caption.
+To plot your own catalogue, point CATALOGUE (below) at the folder with your candidates.csv.
+"""
 import argparse
 import io
 import sys
@@ -14,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from common.paths import HDF5_PATH
 
-CATALOGUE = ROOT / 'catalogue'
+CATALOGUE = ROOT / 'paper_results' / 'catalogue'
 N_PANELS = 30
 PIXEL_SCALE_ARCSEC = 0.05
 
@@ -23,7 +31,7 @@ def main(output_dir, hdf5_path):
     output_dir.mkdir(parents=True, exist_ok=True)
     catalogue = pd.read_csv(CATALOGUE/'candidates.csv', dtype={'filename':str})
     sample = catalogue.sort_values(['imagescore','filename'],ascending=[False,True]).head(N_PANELS).copy()
-    subset = pd.read_csv(ROOT/'results/paper/gemini_low_seed44/subset.csv', dtype={'filename':str}).set_index('filename')
+    subset = pd.read_csv(ROOT/'paper_results/benchmark_subset.csv', dtype={'filename':str}).set_index('filename')
     images = {}
     with h5py.File(hdf5_path, 'r') as archive:
         for filename in sample.filename:
