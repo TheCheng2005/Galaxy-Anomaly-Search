@@ -1,0 +1,8 @@
+method,setting,seeds,recall,recall_sd,precision,expected_recall_at_300
+kNN distance,k = 10,1,0.8503,,0.071,0.1796
+kNN distance,k = 50,1,0.8563,,0.0715,0.1677
+kNN distance,k = 100,1,0.8563,,0.0715,0.1497
+Isolation forest,"1000 trees, 256 images per tree",5,0.7138,0.013,0.0596,0.1006
+Isolation forest,"2000 trees, 256 images per tree",5,0.709,0.0068,0.0592,0.1018
+Isolation forest,"1000 trees, 64 images per tree",5,0.6946,0.0185,0.058,0.0874
+Isolation forest,"1000 trees, 1024 images per tree",5,0.7186,0.0153,0.06,0.1102

@@ -24,7 +24,6 @@ from common.paths import HDF5_PATH
 
 CATALOGUE = ROOT / 'paper_results' / 'catalogue'
 N_PANELS = 30
-PIXEL_SCALE_ARCSEC = 0.05
 
 
 def main(output_dir, hdf5_path):
@@ -52,13 +51,9 @@ def main(output_dir, hdf5_path):
     fig.savefig(output_dir/'appendix_catalog.pdf',bbox_inches='tight',pad_inches=.03)
     fig.savefig(output_dir/'appendix_catalog.png',dpi=200,bbox_inches='tight',pad_inches=.03)
     plt.close(fig)
-    width, height = next(iter(images.values())).size
     caption = (rf'\caption{{The {len(sample)} highest-scoring images among the {len(catalogue)} retained candidates with Gemini '
-               r'\textit{Likert} scores $\geq45$ outside AnomalyMatch, after excluding galaxy-mentions and '
-               r"O'Ryan interacting-catalogue matches within $3\arcsec$ and manually excluding ESO 255-7 and SDSS J1205+4910. "
-               r'Images are ordered by decreasing score, left to right and top to bottom, with ties broken by increasing source identifier. '
-               rf"Each HST F814W cutout is ${width}\times{height}$ pixels (${width*PIXEL_SCALE_ARCSEC:g}''\times{height*PIXEL_SCALE_ARCSEC:g}''$). "
-               r'Labels give source identifiers and scores out of 50. These are follow-up candidates, not confirmed new discoveries.}')
+               r'\textit{Likert} scores $\geq45$ outside AnomalyMatch, after excluding matches to existing literature '
+               r'catalogs within $3\arcsec$ and two sources identified as previously studied through manual literature review.}')
     (output_dir/'appendix_caption.tex').write_text(caption+'\n')
     print(f'Saved {len(sample)} panels; scores {sample.imagescore.max()} to {sample.imagescore.min()}, to {output_dir}')
 

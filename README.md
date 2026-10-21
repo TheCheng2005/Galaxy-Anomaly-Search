@@ -79,6 +79,7 @@ Likert across seeds), not image-for-image the same.
 
 ```bash
 python3 analysis/zoobot_baseline.py
+python3 analysis/zoobot_settings_check.py   # optional: the same with other settings
 ```
 
 A conventional comparison (the Zoobot rows of Table 1): embeds the 20,000 images with a

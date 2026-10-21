@@ -39,6 +39,13 @@ both formats.
 | `qwen_tournament_seed44.csv` | Qwen, Tournament, 0–10 | Table 1, Figure 1 |
 | `zoobot_nano_scores.csv` | the conventional baselines on frozen Zoobot nano embeddings: `isolation_forest` (seed 0) and `knn_distance` (k = 10); higher = more unusual | Table 1 |
 
+**`zoobot_settings_check.csv`** shows the baselines with other settings: 10, 50 and 100
+neighbours for the kNN distance, and isolation forests of 1,000 or 2,000 trees grown on 64, 256
+or 1,024 images each (5 seeds; `recall_sd` is the spread across them). Columns: `recall` and
+`precision` in the top 2,000, and `expected_recall_at_300`. It backs the sentence in Section 2
+that other settings change the results by at most 2 percentage points. Made by
+`analysis/zoobot_settings_check.py`.
+
 ## Costs
 
 **`token_usage.csv`** holds the tokens each VLM run used: `input`, `output`, `thinking` (Gemini

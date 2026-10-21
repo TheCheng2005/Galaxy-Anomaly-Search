@@ -111,7 +111,7 @@ def write_tex(results, output_dir):
     performance = [
         r'\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}llcrcccr@{}}',
         r'    \toprule',
-        rf'    Model & Method & Threshold & N selected & Recall & Precision & Expected Recall@{REVIEW_SET_SIZE} & \$/10,000 \\',
+        rf'    Model & Method & Threshold & N Selected & Recall & Precision & Recall@{REVIEW_SET_SIZE} & \$/10,000 \\',
         r'    & & & & & & (accounting for ties) & Images \\',
         r'    \midrule',
     ]

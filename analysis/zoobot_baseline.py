@@ -22,7 +22,8 @@ How long it takes
   with another --k) skip straight to the scoring.
 
 Things you might want to change
-  --k       neighbours for the kNN distance (default 10). 50 or 100 give nearly the same recall.
+  --k       neighbours for the kNN distance (default 10). analysis/zoobot_settings_check.py
+            tries other neighbour counts and forest sizes.
   --seeds   how many isolation-forest seeds to run for the spread (default 5).
 
 What you get
@@ -30,8 +31,8 @@ What you get
   paper_results/scores/zoobot_nano_scores.csv) and table1_rows.tex, the two Zoobot rows of Table 1.
 
 What to expect
-  kNN distance finds 85.0% of the 167 anomalies in its top 2,000, the isolation forest 70.1%
-  (71.4% +/- 1.3% over five seeds). Expect the same or within a fraction of a percent: different
+  kNN distance finds 85.0% of the 167 anomalies in its top 2,000 and the isolation forest 70.1%;
+  in the top 300, 18.0% and 10.8%. Expect the same or within a fraction of a percent: different
   torch or scikit-learn versions can shift the embeddings and the forest slightly.
 """
 import argparse
@@ -83,9 +84,9 @@ def embed(images, batch=128):
     return np.concatenate(out)
 
 
-def isolation_forest_scores(features, seed):
+def isolation_forest_scores(features, seed, trees=1000, samples=256):
     from sklearn.ensemble import IsolationForest
-    forest = IsolationForest(n_estimators=1000, max_samples=256, random_state=seed).fit(features)
+    forest = IsolationForest(n_estimators=trees, max_samples=samples, random_state=seed).fit(features)
     return -forest.score_samples(features)  # score_samples is high for normal points
 
 
@@ -137,9 +138,9 @@ def main():
     knn = knn_scores(features, args.k)
     print(f'Scored in {time.time() - t1:.0f} s')
 
-    results = {'Isolation forest': evaluate(names, forests[0], truth), f'kNN distance (k={args.k})': evaluate(names, knn, truth)}
+    results = {'kNN distance': evaluate(names, knn, truth), 'Isolation forest': evaluate(names, forests[0], truth)}
     spread = [evaluate(names, s, truth)['expected_recall'] for s in forests]
-    print(f"\nZoobot nano, {len(names):,} images, {sum(truth)} reference anomalies, top {REVIEW_SET_SIZE:,}")
+    print(f"\nZoobot nano, {len(names):,} images, {sum(truth)} reference anomalies, top {REVIEW_SET_SIZE:,}, k = {args.k}")
     print(f"  {'Method':26}{'N Sel':>7}{'Recall':>8}{'Prec':>7}{'ExpR@%d' % REVIEW_SET_SIZE:>10}{'ExpR@300':>10}")
     for method, m in results.items():
         print(f"  {method:26}{m['n_selected']:>7}{m['recall']:>8.3f}{m['precision']:>7.3f}"
@@ -155,7 +156,7 @@ def main():
     for method, m in results.items():
         tex.append(f"    Zoobot nano & \\textit{{{method}}} & Top {REVIEW_SET_SIZE:,} & "
                    f"{REVIEW_SET_SIZE:,} & {m['recall']:.3f} & {m['precision']:.3f} & "
-                   f"{m['expected_recall']:.3f} & \\$0 \\\\".replace(',', '{,}'))
+                   f"{m['expected_recall']:.3f} & -- \\\\".replace(',', '{,}'))
     (args.output_dir / 'table1_rows.tex').write_text('\n'.join(tex) + '\n')
     print(f'\nWrote scores.csv and table1_rows.tex to {args.output_dir}')
 
