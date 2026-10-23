@@ -42,6 +42,7 @@ SCORES = ROOT / 'paper_results' / 'scores'
 RESULTS = {(model, method): SCORES / f'{model}_{method}_seed44.csv' for model, method, *_ in METHODS}
 ZOOBOT = SCORES / 'zoobot_nano_scores.csv'   # from analysis/zoobot_baseline.py
 MAX_SELECTED = 2500
+ZOOBOT_COLOR = '#cc5e0a'
 
 
 def load_counts(path):
@@ -134,7 +135,7 @@ def cached_example_images():
             yield image.copy()
 
 
-def main(output, fits_dir=None):
+def main(output, fits_dir=None, zoobot_style='scatter', zoobot_every=5):
     plt.rcParams.update({'font.family': 'DejaVu Sans', 'font.size': 24,
                          'axes.spines.top': False, 'axes.spines.right': False,
                          'axes.edgecolor': '#333333', 'axes.linewidth': 1.2,
@@ -172,8 +173,13 @@ def main(output, fits_dir=None):
                                        shrinkA=5,
                                        shrinkB=9 if method == 'tournament' else 5))
     zoobot = zoobot_recall(ZOOBOT)[:MAX_SELECTED]
-    a.plot(np.arange(1, len(zoobot) + 1), zoobot, color='#b45309', linewidth=2.6, zorder=3,
-           label='Zoobot nano kNN distance')
+    label = 'Zoobot nano kNN distance'
+    if zoobot_style == 'line':
+        a.plot(np.arange(1, len(zoobot) + 1), zoobot, color=ZOOBOT_COLOR, linewidth=2.6, zorder=3, label=label)
+    else:   # one point per anomaly recovered (where the curve steps up), every zoobot_every-th of them
+        steps = np.flatnonzero(np.diff(np.r_[0, zoobot]) > 0)[zoobot_every - 1::zoobot_every]
+        a.scatter(steps + 1, zoobot[steps], marker='o', color=ZOOBOT_COLOR, s=79, linewidth=.8,
+                  edgecolor='white', zorder=3, label=label)
     a.set(xlim=(0, MAX_SELECTED), ylim=(-.025, 1.04), xticks=np.arange(0, MAX_SELECTED + 1, 500), yticks=np.arange(0, 1.01, .2))
     a.yaxis.set_major_formatter(PercentFormatter(1, decimals=0))
     a.xaxis.set_major_formatter(StrMethodFormatter('{x:,.0f}'))
@@ -230,5 +236,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-o', '--output', type=Path, default=ROOT / 'generated' / 'recall_figure')
     parser.add_argument('--fits-dir', type=Path, help='Regenerate example panels from FITS in this folder (downloads missing products)')
+    parser.add_argument('--zoobot-style', choices=['line', 'scatter'], default='scatter',
+                        help='Zoobot kNN in panel (a): a point per anomaly recovered (the paper), or its recall curve')
+    parser.add_argument('--zoobot-every', type=int, default=5, help='with scatter: keep every K-th point (paper: 5)')
     args = parser.parse_args()
-    main(args.output, args.fits_dir)
+    main(args.output, args.fits_dir, args.zoobot_style, args.zoobot_every)
