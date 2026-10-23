@@ -3,13 +3,14 @@ histogram, and (c) three example images.
 
   python3 analysis/make_recall_figure.py
 
-It reads the four seed-44 runs in paper_results/scores/ and writes generated/recall_figure.png and
-.svg. The example panels (c) come from paper_results/figure1_examples/. To redraw them from the
+It reads the four seed-44 runs and the Zoobot nano kNN-distance ranking (zoobot_nano_scores.csv) in
+paper_results/scores/ and writes generated/recall_figure.png and .svg. The example panels (c) come from paper_results/figure1_examples/. To redraw them from the
 original HST frames instead, pass --fits-dir DIR (missing frames are downloaded from MAST).
 
 To plot your own runs, point SCORES (below) at generated/scores/.
 """
 import argparse
+import csv
 import sys
 import io
 import shutil
@@ -39,6 +40,7 @@ sys.path.insert(0, str(ROOT))
 from common import scores_csv
 SCORES = ROOT / 'paper_results' / 'scores'
 RESULTS = {(model, method): SCORES / f'{model}_{method}_seed44.csv' for model, method, *_ in METHODS}
+ZOOBOT = SCORES / 'zoobot_nano_scores.csv'   # from analysis/zoobot_baseline.py
 MAX_SELECTED = 2500
 
 
@@ -49,6 +51,15 @@ def load_counts(path):
     labels = np.array([int(r['interesting']) for r in rows])
     counts = np.array([np.bincount(scores[labels == k].astype(int), minlength=51) for k in (0, 1)])
     return counts
+
+
+def zoobot_recall(path):
+    """Recall in the top N images of the Zoobot kNN-distance ranking, for N = 1, 2, ... (no ties)."""
+    with open(path, newline='') as f:
+        rows = list(csv.DictReader(f))
+    scores = np.array([float(r['knn_distance']) for r in rows])
+    labels = np.array([int(r['interesting']) for r in rows])
+    return np.cumsum(labels[np.argsort(-scores, kind='stable')]) / labels.sum()
 
 
 def rendered_crop(image, low, high):
@@ -151,8 +162,8 @@ def main(output, fits_dir=None):
             label_positions = {
                 ('gemini', 'likert', 33): (2290, .77),
                 ('qwen', 'likert', 36): (1780, .76),
-                ('gemini', 'tournament', 10): (1980, .61),
-                ('qwen', 'tournament', 10): (2140, .51),
+                ('gemini', 'tournament', 10): (1900, .66),
+                ('qwen', 'tournament', 10): (2200, .60),
             }
             a.annotate(text, (selected[t], recall[t]),
                        xytext=label_positions[model, method, t], textcoords='data',
@@ -160,6 +171,9 @@ def main(output, fits_dir=None):
                        arrowprops=dict(arrowstyle='-', color='#666666', lw=.7,
                                        shrinkA=5,
                                        shrinkB=9 if method == 'tournament' else 5))
+    zoobot = zoobot_recall(ZOOBOT)[:MAX_SELECTED]
+    a.plot(np.arange(1, len(zoobot) + 1), zoobot, color='#b45309', linewidth=2.6, zorder=3,
+           label='Zoobot nano kNN distance')
     a.set(xlim=(0, MAX_SELECTED), ylim=(-.025, 1.04), xticks=np.arange(0, MAX_SELECTED + 1, 500), yticks=np.arange(0, 1.01, .2))
     a.yaxis.set_major_formatter(PercentFormatter(1, decimals=0))
     a.xaxis.set_major_formatter(StrMethodFormatter('{x:,.0f}'))
@@ -170,7 +184,7 @@ def main(output, fits_dir=None):
     a.axhline(1, color='#888888', linewidth=1.4, zorder=2, clip_on=False)
     a.legend(loc='lower right', fontsize=22, framealpha=1, borderpad=.35, labelspacing=.25, handletextpad=.4, handlelength=1)
 
-    for k, color, label in [(0, '#94a3b8', 'Non-interesting'), (1, '#146c2e', 'Anomaly')]:
+    for k, color, label in [(0, '#94a3b8', 'Background'), (1, '#146c2e', 'Anomaly')]:
         b.bar(np.arange(51) + (k-.5)*.38, histogram[k], .38, color=color,
               edgecolor='white', linewidth=.8, label=label, zorder=3)
     b.set(yscale='log', ylim=(.6, 75000), xlim=(-1, 51), xticks=range(0, 51, 5))
