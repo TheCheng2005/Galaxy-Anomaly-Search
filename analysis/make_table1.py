@@ -14,7 +14,7 @@ The Zoobot rows of Table 1 come from analysis/zoobot_baseline.py.
 To use your own runs, point SCORES (below) at generated/scores/ and add a row per run to a copy of
 token_usage.csv, using the token counts at the bottom of each score file.
 
-What to expect: exactly the paper's numbers, e.g. Gemini Likert recall 0.982 at score >= 33.
+What to expect: similar to the paper's numbers, e.g. Gemini Likert recall 0.982 at score >= 33.
 """
 
 import argparse
